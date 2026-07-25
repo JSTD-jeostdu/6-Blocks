@@ -182,7 +182,6 @@ export default function App() {
     return d.onboarded ? 'canvas' : 'onboarding'
   })
   const [dragIndex, setDragIndex] = useState<number | null>(null)
-  const timerRef = useRef<number | null>(null)
 
   // Save on every data change
   useEffect(() => { saveData(data) }, [data])
@@ -193,10 +192,9 @@ export default function App() {
   }, [data.theme])
 
   const today = getToday(data)
-  const todayKey = dateKey()
 
   // Update data helper
-  const update = useCallback((updater: (d: AppData) => AppData) => {
+  const update = useCallback((updater: (d: AppData) => void) => {
     setData(prev => {
       const next = { ...prev }
       updater(next)
@@ -226,7 +224,7 @@ export default function App() {
 
   // ==================== ONBOARDING ====================
   if (screen === 'onboarding') {
-    return <Onboarding data={data} update={update} onComplete={() => {
+    return <Onboarding update={update} onComplete={() => {
       update(d => { d.onboarded = true })
       setScreen('canvas')
     }} />
@@ -268,8 +266,6 @@ export default function App() {
           <CanvasTab
             today={today}
             updateToday={updateToday}
-            data={data}
-            update={update}
             dragIndex={dragIndex}
             setDragIndex={setDragIndex}
             onMorning={() => setScreen('morning')}
@@ -284,8 +280,7 @@ export default function App() {
 }
 
 // ==================== ONBOARDING COMPONENT ====================
-function Onboarding({ data, update, onComplete }: {
-  data: AppData
+function Onboarding({ update, onComplete }: {
   update: (fn: (d: AppData) => void) => void
   onComplete: () => void
 }) {
@@ -419,11 +414,9 @@ function Onboarding({ data, update, onComplete }: {
 }
 
 // ==================== CANVAS TAB ====================
-function CanvasTab({ today, updateToday, data, update, dragIndex, setDragIndex, onMorning, onEvening }: {
+function CanvasTab({ today, updateToday, dragIndex, setDragIndex, onMorning, onEvening }: {
   today: DayData
   updateToday: (fn: (day: DayData) => void) => void
-  data: AppData
-  update: (fn: (d: AppData) => void) => void
   dragIndex: number | null
   setDragIndex: (i: number | null) => void
   onMorning: () => void
@@ -878,7 +871,6 @@ function ReviewTab({ today, data }: { today: DayData; data: AppData }) {
   const totalTasks = today.blocks.reduce((acc, b) => acc + b.tasks.length, 0)
   const taskRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
   const virtueEarned = Object.values(today.virtueDots).filter(Boolean).length
-  const purposeColors = PURPOSES
 
   return (
     <div>
