@@ -77,9 +77,10 @@ const VIRTUES = [
   { ko: '중용', en: 'Moderation', precept: 'Avoid extremes; forbear resenting injuries so much as you think they deserve.' },
   { ko: '청결', en: 'Cleanliness', precept: 'Tolerate no uncleanliness in body, clothes, or habitation.' },
   { ko: '평정', en: 'Tranquillity', precept: 'Be not disturbed at trifles, or at accidents common or unavoidable.' },
-  { ko: '순결', en: 'Chastity', precept: 'Rarely use venery but for health or offspring.' },
   { ko: '겸손', en: 'Humility', precept: 'Imitate Jesus and Socrates.' },
 ]
+
+const VIRTUE_CYCLE_LENGTH = VIRTUES.length
 
 const FRANKLIN_PRESET = [
   { title: '기상·계획', purpose: 'organize' as Purpose, startTime: '05:00', endTime: '08:00' },
@@ -204,14 +205,22 @@ export default function App() {
   }, [])
 
   // Update today's data helper
+  // NOTE: Must deep-clone blocks/tasks (not just the day object) because React 18
+  // StrictMode invokes the setState updater function twice in development.
+  // A shallow clone would let both invocations mutate the SAME nested arrays
+  // (e.g. tasks.push(...)), causing duplicate entries from a single click.
   const updateToday = useCallback((updater: (day: DayData) => void) => {
     setData(prev => {
-      const next = { ...prev, days: { ...prev.days } }
       const key = dateKey()
-      if (!next.days[key]) next.days[key] = emptyDay()
-      next.days[key] = { ...next.days[key] }
-      updater(next.days[key])
-      return next
+      const prevDay = prev.days[key] || emptyDay()
+      const nextDay: DayData = {
+        ...prevDay,
+        blocks: prevDay.blocks.map(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t })) })),
+        virtueDots: { ...prevDay.virtueDots },
+        stamps: [...prevDay.stamps],
+      }
+      updater(nextDay)
+      return { ...prev, days: { ...prev.days, [key]: nextDay } }
     })
   }, [])
 
@@ -293,7 +302,7 @@ function Onboarding({ data, update, onComplete }: {
         <div className="onboard-subtitle">
           벤저민 프랭클린의 "하루 6블록" 철학에서 출발했어요.<br/>
           하루에 6가지 중요한 일을 정하고, 의도와 회고로 감싸며,<br/>
-          13덕목으로 성장을 추적합니다.
+          {VIRTUE_CYCLE_LENGTH}덕목으로 성장을 추적합니다.
         </div>
         <div className="rail-preview">
           <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.deepwork }} />
@@ -368,7 +377,7 @@ function Onboarding({ data, update, onComplete }: {
     return (
       <div className="onboarding">
         <div className="onboard-title">첫 주 덕목을 선택하세요</div>
-        <div className="onboard-subtitle">13주 동안 매주 하나의 덕목에 집중합니다. 추천: 절제(Temperance)</div>
+        <div className="onboard-subtitle">{VIRTUE_CYCLE_LENGTH}주 동안 매주 하나의 덕목에 집중합니다. 추천: 절제(Temperance)</div>
         {VIRTUES.map((v, i) => (
           <div key={i} className="virtue-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedVirtue(i)}>
             <div className={`virtue-dot ${selectedVirtue === i ? 'active' : ''}`} />
@@ -564,10 +573,20 @@ function CanvasTab({ today, updateToday, data, update, dragIndex, setDragIndex, 
                       style={{ ['--purpose-color' as string]: purposeColor }}
                       onClick={() => updateToday(day => { day.blocks[i].tasks[ti].done = !day.blocks[i].tasks[ti].done })}
                     />
-                    <span className={`task-text ${task.done ? 'done' : ''}`}>{task.text}</span>
+                    <input
+                      className={`task-text-input ${task.done ? 'done' : ''}`}
+                      placeholder="작업 입력"
+                      value={task.text}
+                      onChange={e => updateToday(day => { day.blocks[i].tasks[ti].text = e.target.value })}
+                    />
+                    <span
+                      className="task-remove"
+                      onClick={() => updateToday(day => { day.blocks[i].tasks.splice(ti, 1) })}
+                      title="작업 삭제"
+                    >×</span>
                   </li>
                 ))}
-                <li className="block-add-task" onClick={() => updateToday(day => { day.blocks[i].tasks.push({ id: uid(), text: '새 작업', done: false }) })}>
+                <li className="block-add-task" onClick={() => updateToday(day => { day.blocks[i].tasks.push({ id: uid(), text: '', done: false }) })}>
                   + 작업 추가
                 </li>
               </ul>
@@ -763,7 +782,7 @@ function VirtueTab({ data, update, today, updateToday }: {
   updateToday: (fn: (day: DayData) => void) => void
 }) {
   const virtue = VIRTUES[data.currentVirtue]
-  const progress = (data.cycleWeek / 13) * 100
+  const progress = (data.cycleWeek / VIRTUE_CYCLE_LENGTH) * 100
   const dayKey = dateKey()
   const todayEarned = !!today.virtueDots[dayKey]
 
@@ -778,10 +797,10 @@ function VirtueTab({ data, update, today, updateToday }: {
       <div className="virtue-cycle-card">
         <div className="cycle-header">
           <div>
-            <div className="cycle-week">WEEK {data.cycleWeek} / 13</div>
+            <div className="cycle-week">WEEK {data.cycleWeek} / {VIRTUE_CYCLE_LENGTH}</div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>이번 주 덕목: {virtue.ko}</div>
           </div>
-          <div className="cycle-number tabular">{data.cycleWeek}<span style={{ fontSize: 20, opacity: 0.5 }}>/13</span></div>
+          <div className="cycle-number tabular">{data.cycleWeek}<span style={{ fontSize: 20, opacity: 0.5 }}>/{VIRTUE_CYCLE_LENGTH}</span></div>
         </div>
         <div className="cycle-progress">
           <div className="cycle-progress-fill" style={{ width: `${progress}%` }} />
@@ -821,7 +840,7 @@ function VirtueTab({ data, update, today, updateToday }: {
       </div>
 
       {/* All virtues list */}
-      <div className="section-title" style={{ fontSize: 16 }}>13덕목</div>
+      <div className="section-title" style={{ fontSize: 16 }}>{VIRTUE_CYCLE_LENGTH}덕목</div>
       {VIRTUES.map((v, i) => (
         <div key={i} className="virtue-item">
           <div className={`virtue-dot ${i === data.currentVirtue ? 'active' : ''}`} />
@@ -836,15 +855,15 @@ function VirtueTab({ data, update, today, updateToday }: {
       {/* Next virtue button */}
       <div style={{ marginTop: 16 }}>
         <button className="cta-btn" onClick={() => update(d => {
-          if (d.cycleWeek < 13) {
+          if (d.cycleWeek < VIRTUE_CYCLE_LENGTH) {
             d.cycleWeek++
-            d.currentVirtue = (d.currentVirtue + 1) % 13
+            d.currentVirtue = (d.currentVirtue + 1) % VIRTUE_CYCLE_LENGTH
           } else {
             d.cycleWeek = 1
             d.currentVirtue = 0
           }
         })}>
-          {data.cycleWeek < 13 ? '다음 주 덕목으로 →' : '새 사이클 시작 🏆'}
+          {data.cycleWeek < VIRTUE_CYCLE_LENGTH ? '다음 주 덕목으로 →' : '새 사이클 시작 🏆'}
         </button>
       </div>
     </div>
@@ -917,7 +936,7 @@ function ReviewTab({ today, data }: { today: DayData; data: AppData }) {
         </div>
         <div className="review-stat">
           <span className="review-stat-label">사이클</span>
-          <span className="review-stat-value">{data.cycleWeek} / 13</span>
+          <span className="review-stat-value">{data.cycleWeek} / {VIRTUE_CYCLE_LENGTH}</span>
         </div>
         <div className="review-stat">
           <span className="review-stat-label">오늘 도트</span>

@@ -278,6 +278,37 @@ body {
 .task-text { flex: 1; }
 .task-text.done { text-decoration: line-through; color: var(--muted); }
 
+.task-text-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+  outline: none;
+  padding: 2px 0;
+  min-width: 0;
+}
+
+.task-text-input::placeholder { color: var(--muted); }
+.task-text-input.done { text-decoration: line-through; color: var(--muted); }
+
+.task-remove {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.task-remove:hover { opacity: 1; }
+
 .block-add-task {
   font-size: 13px;
   color: var(--muted);
