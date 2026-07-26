@@ -849,3 +849,142 @@ body {
   cursor: pointer;
   padding: 4px 0;
 }
+
+/* ==================== Account / Google Sync Panel ==================== */
+.account-panel {
+  position: relative;
+}
+
+.account-toggle {
+  background: var(--card);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+}
+
+[data-theme="dark"] .account-toggle { border-color: rgba(255,255,255,0.08); }
+
+.account-icon { font-size: 16px; }
+
+.account-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.account-avatar-lg {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.account-dropdown {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  width: 260px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+  padding: 16px;
+  z-index: 200;
+  animation: slideUpFade 0.15s ease-out;
+}
+
+.account-empty-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.account-empty-desc { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+
+.account-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.account-name { font-weight: 700; font-size: 14px; }
+.account-email { font-size: 12px; color: var(--muted); }
+
+.google-signin-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  color: #1f1f1f;
+  border: 1px solid rgba(0,0,0,0.16);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.google-signin-btn:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+
+.google-g {
+  font-weight: 800;
+  font-family: 'Product Sans', Arial, sans-serif;
+  background: linear-gradient(135deg, #4285F4, #EA4335 40%, #FBBC05 65%, #34A853);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 16px;
+}
+
+.account-signout-btn {
+  width: 100%;
+  background: none;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+[data-theme="dark"] .account-signout-btn { border-color: rgba(255,255,255,0.12); }
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.sync-status--synced { color: var(--rest); }
+.sync-status--error { color: #c0392b; }
+
+.sync-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(0,0,0,0.15);
+  border-top-color: var(--study);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sync-error-detail {
+  font-size: 11px;
+  color: #c0392b;
+  background: rgba(192,57,43,0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}

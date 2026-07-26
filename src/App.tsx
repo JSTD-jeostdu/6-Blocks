@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser, fetchRemoteData, pushRemoteData, type SyncUser } from './firebase'
 
 // ==================== TYPES ====================
 type Purpose = 'deepwork' | 'study' | 'rest' | 'organize' | 'evening' | 'sleep' | ''
@@ -33,6 +34,7 @@ interface DayData {
   eveningDone: boolean
   virtueDots: Record<string, boolean>  // virtueIndex -> earned
   stamps: boolean[]  // 7 days
+  updatedAt: number  // 마지막 수정 시각 (ms) - 병합(merge) 시 최신 데이터를 판별하는 데 사용
 }
 
 interface AppData {
@@ -42,7 +44,10 @@ interface AppData {
   cycleWeek: number
   theme: 'light' | 'dark'
   days: Record<string, DayData>  // dateKey -> data
+  updatedAt: number  // 마지막 수정 시각 (ms)
 }
+
+type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
 // ==================== CONSTANTS ====================
 const PURPOSE_COLORS: Record<string, string> = {
@@ -123,6 +128,7 @@ function emptyDay(): DayData {
     eveningDone: false,
     virtueDots: {},
     stamps: [false, false, false, false, false, false, false],
+    updatedAt: Date.now(),
   }
 }
 
@@ -134,6 +140,7 @@ function defaultData(): AppData {
     cycleWeek: 1,
     theme: 'light',
     days: {},
+    updatedAt: Date.now(),
   }
 }
 
@@ -149,6 +156,30 @@ function saveData(data: AppData) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch {}
+}
+
+// ==================== 클라우드 병합(MERGE) 로직 ====================
+// 목표: 기기(로컬)에 있던 데이터와 클라우드(원격)에 있던 데이터를 "덮어쓰지 않고" 합칩니다.
+// - 날짜(day)별로 나눠서 비교하고, 각 날짜마다 updatedAt(마지막 수정 시각)이 더 최신인 쪽을 채택합니다.
+// - 두 쪽에만 있는 날짜는 그대로 살립니다 (예: 로컬에만 있는 어제 기록 + 클라우드에만 있는 다른 기기의 오늘 기록).
+// - 상단 설정값(onboarded, currentVirtue, cycleWeek, theme 등)도 updatedAt이 더 최신인 쪽을 채택합니다.
+function mergeAppData(local: AppData, remote: AppData): AppData {
+  const merged: AppData = local.updatedAt >= remote.updatedAt ? { ...local } : { ...remote }
+
+  const allDayKeys = new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})])
+  const mergedDays: Record<string, DayData> = {}
+  allDayKeys.forEach(key => {
+    const l = local.days?.[key]
+    const r = remote.days?.[key]
+    if (l && r) {
+      mergedDays[key] = (l.updatedAt || 0) >= (r.updatedAt || 0) ? l : r
+    } else {
+      mergedDays[key] = (l || r)!
+    }
+  })
+  merged.days = mergedDays
+  merged.updatedAt = Date.now()
+  return merged
 }
 
 function getToday(data: AppData): DayData {
@@ -183,6 +214,12 @@ export default function App() {
   })
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
+  // ---- 구글 로그인 & 클라우드 동기화 상태 ----
+  const [authUser, setAuthUser] = useState<SyncUser | null>(null)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
+  const [syncError, setSyncError] = useState<string>('')
+  const hasMergedRef = useRef(false)
+
   // Save on every data change
   useEffect(() => { saveData(data) }, [data])
 
@@ -191,6 +228,70 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', data.theme)
   }, [data.theme])
 
+  // 로그인 상태 감지: 로그인되면 클라우드 데이터를 가져와 "병합"하고, 이후 변경사항은 자동 업로드합니다.
+  useEffect(() => {
+    if (!isFirebaseConfigured) return
+    const unsub = onAuthChange(async user => {
+      setAuthUser(user)
+      if (user && !hasMergedRef.current) {
+        hasMergedRef.current = true
+        setSyncStatus('syncing')
+        setSyncError('')
+        try {
+          const remote = await fetchRemoteData<AppData>(user.uid)
+          setData(prev => {
+            const merged = remote ? mergeAppData(prev, remote) : { ...prev, updatedAt: Date.now() }
+            return merged
+          })
+          setSyncStatus('synced')
+        } catch (e) {
+          setSyncStatus('error')
+          setSyncError(e instanceof Error ? e.message : '동기화 중 오류가 발생했어요.')
+        }
+      }
+      if (!user) {
+        hasMergedRef.current = false
+        setSyncStatus('idle')
+      }
+    })
+    return unsub
+  }, [])
+
+  // 로그인 상태에서 데이터가 바뀌면 자동으로 클라우드에 업로드(백업)합니다.
+  // (이미 위에서 로컬↔클라우드를 병합한 뒤이므로, 여기서의 저장은 "합쳐진 최신본"을 올리는 것 → 데이터 손실 없음)
+  useEffect(() => {
+    if (!authUser || !isFirebaseConfigured || !hasMergedRef.current) return
+    const timer = window.setTimeout(async () => {
+      setSyncStatus('syncing')
+      try {
+        await pushRemoteData(authUser.uid, data)
+        setSyncStatus('synced')
+      } catch (e) {
+        setSyncStatus('error')
+        setSyncError(e instanceof Error ? e.message : '업로드 중 오류가 발생했어요.')
+      }
+    }, 1200) // 짧은 시간 안에 여러 번 수정해도 한 번만 업로드 (디바운스)
+    return () => window.clearTimeout(timer)
+  }, [data, authUser])
+
+  async function handleGoogleSignIn() {
+    setSyncStatus('syncing')
+    setSyncError('')
+    try {
+      await signInWithGoogle()
+      // onAuthChange 콜백이 이어서 병합을 처리합니다.
+    } catch (e) {
+      setSyncStatus('error')
+      setSyncError(e instanceof Error ? e.message : '로그인에 실패했어요.')
+    }
+  }
+
+  async function handleSignOut() {
+    await signOutUser()
+    setAuthUser(null)
+    setSyncStatus('idle')
+  }
+
   const today = getToday(data)
 
   // Update data helper
@@ -198,6 +299,7 @@ export default function App() {
     setData(prev => {
       const next = { ...prev }
       updater(next)
+      next.updatedAt = Date.now()
       return next
     })
   }, [])
@@ -218,7 +320,8 @@ export default function App() {
         stamps: [...prevDay.stamps],
       }
       updater(nextDay)
-      return { ...prev, days: { ...prev.days, [key]: nextDay } }
+      nextDay.updatedAt = Date.now()
+      return { ...prev, days: { ...prev.days, [key]: nextDay }, updatedAt: Date.now() }
     })
   }, [])
 
@@ -229,6 +332,16 @@ export default function App() {
       setScreen('canvas')
     }} />
   }
+
+  const accountPanel = (
+    <AccountPanel
+      authUser={authUser}
+      syncStatus={syncStatus}
+      syncError={syncError}
+      onSignIn={handleGoogleSignIn}
+      onSignOut={handleSignOut}
+    />
+  )
 
   // ==================== MORNING QUESTION ====================
   if (screen === 'morning') {
@@ -249,6 +362,7 @@ export default function App() {
           <div className="app-date">{new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
         </div>
         <div className="header-right">
+          {accountPanel}
           <button className="theme-toggle" onClick={() => update(d => { d.theme = d.theme === 'light' ? 'dark' : 'light' })}>
             {data.theme === 'light' ? '🌙' : '☀️'}
           </button>
@@ -279,16 +393,97 @@ export default function App() {
   )
 }
 
+// ==================== ACCOUNT / GOOGLE SYNC PANEL ====================
+function AccountPanel({ authUser, syncStatus, syncError, onSignIn, onSignOut }: {
+  authUser: SyncUser | null
+  syncStatus: SyncStatus
+  syncError: string
+  onSignIn: () => void
+  onSignOut: () => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  const statusLabel: Record<SyncStatus, string> = {
+    idle: '',
+    syncing: '동기화 중…',
+    synced: '클라우드에 저장됨 ✓',
+    error: '동기화 오류',
+  }
+
+  return (
+    <div className="account-panel">
+      <button className="account-toggle" onClick={() => setOpen(o => !o)} title="구글 계정 동기화">
+        {authUser?.photoURL ? (
+          <img className="account-avatar" src={authUser.photoURL} alt="" />
+        ) : (
+          <span className="account-icon">{authUser ? '👤' : '☁️'}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="account-dropdown">
+          {!isFirebaseConfigured ? (
+            <div className="account-empty">
+              <div className="account-empty-title">☁️ 클라우드 동기화 준비 중</div>
+              <div className="account-empty-desc">
+                구글 로그인으로 여러 기기에서 데이터를 동기화하려면, 앱 관리자가 Firebase 설정을 먼저 등록해야 해요.
+                지금은 이 기기의 브라우저에만 데이터가 저장됩니다.
+              </div>
+            </div>
+          ) : authUser ? (
+            <>
+              <div className="account-info">
+                {authUser.photoURL && <img className="account-avatar-lg" src={authUser.photoURL} alt="" />}
+                <div>
+                  <div className="account-name">{authUser.displayName || '사용자'}</div>
+                  <div className="account-email">{authUser.email}</div>
+                </div>
+              </div>
+              <div className={`sync-status sync-status--${syncStatus}`}>
+                {syncStatus === 'syncing' && <span className="sync-spinner" />}
+                {statusLabel[syncStatus]}
+              </div>
+              {syncStatus === 'error' && syncError && <div className="sync-error-detail">{syncError}</div>}
+              <button className="account-signout-btn" onClick={onSignOut}>로그아웃</button>
+            </>
+          ) : (
+            <>
+              <div className="account-empty-title">구글로 로그인</div>
+              <div className="account-empty-desc">로그인하면 이 기기의 데이터를 클라우드에 안전하게 백업하고, 다른 기기와 자동으로 합쳐서(병합) 동기화해요. 기존 데이터가 사라지지 않아요.</div>
+              <button className="google-signin-btn" onClick={onSignIn}>
+                <span className="google-g">G</span> 구글로 로그인
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ==================== ONBOARDING COMPONENT ====================
 function Onboarding({ update, onComplete }: {
   update: (fn: (d: AppData) => void) => void
   onComplete: () => void
 }) {
   const [step, setStep] = useState(0)
-  const [blockTitles, setBlockTitles] = useState<string[]>(['', '', '', '', '', ''])
-  const [blockPurposes, setBlockPurposes] = useState<Purpose[]>(['', '', '', '', '', ''])
-  const [usePreset, setUsePreset] = useState(false)
+  // 기본값: 프랭클린 원형 프리셋. "직접 입력할래요"를 누르면 manual로 전환됩니다.
+  const [mode, setMode] = useState<'preset' | 'manual'>('preset')
+  const [blockTitles, setBlockTitles] = useState<string[]>(FRANKLIN_PRESET.map(b => b.title))
+  const [blockPurposes, setBlockPurposes] = useState<Purpose[]>(FRANKLIN_PRESET.map(b => b.purpose))
   const [selectedVirtue, setSelectedVirtue] = useState(0)
+
+  function switchToManual() {
+    setMode('manual')
+    setBlockTitles(['', '', '', '', '', ''])
+    setBlockPurposes(['', '', '', '', '', ''])
+  }
+
+  function switchToPreset() {
+    setMode('preset')
+    setBlockTitles(FRANKLIN_PRESET.map(b => b.title))
+    setBlockPurposes(FRANKLIN_PRESET.map(b => b.purpose))
+  }
 
   if (step === 0) {
     return (
@@ -316,9 +511,27 @@ function Onboarding({ update, onComplete }: {
     return (
       <div className="onboarding">
         <div className="onboard-title">오늘 하루 6가지 중요한 일을 적어보세요</div>
-        <div className="onboard-subtitle">시간은 설정하지 않아도 괜찮아요. 순서대로 채우면 됩니다.</div>
+        <div className="onboard-subtitle">
+          {mode === 'preset'
+            ? '기본값으로 벤저민 프랭클린의 원형 6블록을 채워드렸어요. 그대로 시작해도 좋고, 자유롭게 수정해도 괜찮아요.'
+            : '시간은 설정하지 않아도 괜찮아요. 순서대로 채우면 됩니다.'}
+        </div>
 
-        {blockTitles.map((title, i) => (
+        {mode === 'preset' && (
+          <div className="preset-card">
+            <div className="preset-title">📖 프랭클린 원형 6블록 (기본값)</div>
+            {FRANKLIN_PRESET.map((b, i) => (
+              <div key={i} className="preset-block">
+                <div className="preset-rail" style={{ background: PURPOSE_COLORS[b.purpose] }} />
+                <div className="preset-name">{b.title}</div>
+                <div className="preset-time">{b.startTime}–{b.endTime}</div>
+              </div>
+            ))}
+            <div style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0' }}>시간은 내 리듬에 맞게 나중에 자유롭게 조정할 수 있어요.</div>
+          </div>
+        )}
+
+        {mode === 'manual' && blockTitles.map((title, i) => (
           <div key={i} className="onboard-block">
             <div className="onboard-block-rail" style={{ background: blockPurposes[i] ? PURPOSE_COLORS[blockPurposes[i]] : '#CCC' }} />
             <input
@@ -334,29 +547,10 @@ function Onboarding({ update, onComplete }: {
           </div>
         ))}
 
-        <button className="link-btn" onClick={() => setUsePreset(true)}>📖 프랭클린 원형으로 시작할래요</button>
-
-        {usePreset && (
-          <div className="preset-card">
-            <div className="preset-title">📖 프랭클린 원형 6블록</div>
-            {FRANKLIN_PRESET.map((b, i) => (
-              <div key={i} className="preset-block">
-                <div className="preset-rail" style={{ background: PURPOSE_COLORS[b.purpose] }} />
-                <div className="preset-name">{b.title}</div>
-                <div className="preset-time">{b.startTime}–{b.endTime}</div>
-              </div>
-            ))}
-            <div style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0' }}>시간은 내 리듬에 맞게 조정 가능</div>
-            <button className="cta-btn" onClick={() => {
-              FRANKLIN_PRESET.forEach((b, i) => {
-                blockTitles[i] = b.title
-                blockPurposes[i] = b.purpose
-              })
-              setBlockTitles([...blockTitles])
-              setBlockPurposes([...blockPurposes])
-              setUsePreset(false)
-            }}>이 프리셋으로 시작</button>
-          </div>
+        {mode === 'preset' ? (
+          <button className="link-btn" onClick={switchToManual}>✏️ 직접 입력할래요</button>
+        ) : (
+          <button className="link-btn" onClick={switchToPreset}>📖 프랭클린 원형으로 다시 시작할래요</button>
         )}
 
         <div style={{ marginTop: 16 }}>
@@ -396,8 +590,8 @@ function Onboarding({ update, onComplete }: {
                 title: title || '',
                 intention: '',
                 purpose: blockPurposes[i] || '',
-                startTime: usePreset ? FRANKLIN_PRESET[i].startTime : undefined,
-                endTime: usePreset ? FRANKLIN_PRESET[i].endTime : undefined,
+                startTime: mode === 'preset' ? FRANKLIN_PRESET[i].startTime : undefined,
+                endTime: mode === 'preset' ? FRANKLIN_PRESET[i].endTime : undefined,
                 tasks: [],
               }))
             })

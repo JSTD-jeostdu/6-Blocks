@@ -3,6 +3,10 @@ dist
 dist-ssr
 *.local
 
+# Firebase secrets (실제 키 값은 절대 커밋하지 않습니다)
+.env
+.env.local
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
