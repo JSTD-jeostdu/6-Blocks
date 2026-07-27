@@ -461,6 +461,180 @@ function AccountPanel({ authUser, syncStatus, syncError, onSignIn, onSignOut }: 
   )
 }
 
+// ==================== INTRO CAROUSEL (첫 소개 화면 - 애니메이션 슬라이드) ====================
+interface IntroSlide {
+  emoji: string
+  title: string
+  subtitle: string
+  accent: string
+  visual: (accent: string) => React.ReactNode
+}
+
+const INTRO_SLIDES: IntroSlide[] = [
+  {
+    emoji: '📖',
+    title: 'SixBlocks',
+    subtitle: '벤저민 프랭클린의 "하루 6블록" 철학으로\n하루를 설계하고 성장을 기록해요.',
+    accent: '#3B4D8C',
+    visual: (accent) => (
+      <div className="intro-visual intro-visual-rails">
+        {['#3B4D8C', '#D49A3A', '#6E8B6A', '#5A6472', '#7B4B6E', '#232A3E'].map((c, i) => (
+          <div key={i} className="intro-rail-bar" style={{ background: c, animationDelay: `${i * 90}ms` }} />
+        ))}
+        <div className="intro-glow" style={{ background: accent }} />
+      </div>
+    ),
+  },
+  {
+    emoji: '🧩',
+    title: '하루 6가지 중요한 일',
+    subtitle: '가장 중요한 일 6가지에만 집중해요.\n프랭클린 원형으로 바로 시작하거나 직접 입력할 수 있어요.',
+    accent: '#D49A3A',
+    visual: () => (
+      <div className="intro-visual intro-visual-blocks">
+        {[
+          { label: '기상·계획', color: '#5A6472' },
+          { label: '딥워크', color: '#3B4D8C' },
+          { label: '독서·식사', color: '#D49A3A' },
+        ].map((b, i) => (
+          <div key={i} className="intro-block-row" style={{ animationDelay: `${i * 140}ms` }}>
+            <div className="intro-block-dot" style={{ background: b.color }} />
+            <div className="intro-block-label">{b.label}</div>
+            <div className="intro-block-check">✓</div>
+          </div>
+        ))}
+      </div>
+    ),
+  },
+  {
+    emoji: '☀️',
+    title: '아침 의도 · 저녁 반성',
+    subtitle: '"오늘 나는 무슨 선을 행할 것인가?"\n하루를 의식적으로 열고 닫아요.',
+    accent: '#7B4B6E',
+    visual: () => (
+      <div className="intro-visual intro-visual-questions">
+        <div className="intro-q-card intro-q-morning">
+          <span className="intro-q-icon">☀️</span>
+          <span className="intro-q-text">오늘 무슨 선을 행할 것인가?</span>
+        </div>
+        <div className="intro-q-card intro-q-evening">
+          <span className="intro-q-icon">🌙</span>
+          <span className="intro-q-text">오늘 무슨 선을 행했는가?</span>
+        </div>
+      </div>
+    ),
+  },
+  {
+    emoji: '🏆',
+    title: `${VIRTUE_CYCLE_LENGTH}덕목으로 성장 추적`,
+    subtitle: '매주 하나의 덕목에 집중하며\n스탬프와 사이클로 꾸준함을 눈으로 확인해요.',
+    accent: '#D49A3A',
+    visual: () => (
+      <div className="intro-visual intro-visual-virtue">
+        <div className="intro-virtue-ring">
+          <div className="intro-virtue-ring-fill" />
+          <div className="intro-virtue-ring-label">4/12</div>
+        </div>
+        <div className="intro-stamp-row">
+          {[true, true, true, false, false, false, false].map((earned, i) => (
+            <div key={i} className={`intro-stamp-mini ${earned ? 'earned' : ''}`} style={{ animationDelay: `${i * 60}ms` }}>
+              {earned ? '✓' : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+  {
+    emoji: '☁️',
+    title: '구글 로그인으로 안전하게',
+    subtitle: '로그인하면 기기와 클라우드 데이터를 자동으로 합쳐줘요.\n덮어쓰기로 데이터가 사라질 걱정은 없어요.',
+    accent: '#6E8B6A',
+    visual: () => (
+      <div className="intro-visual intro-visual-sync">
+        <div className="intro-sync-device">📱</div>
+        <div className="intro-sync-arrow">⇄</div>
+        <div className="intro-sync-cloud">☁️</div>
+      </div>
+    ),
+  },
+]
+
+function IntroCarousel({ onStart }: { onStart: () => void }) {
+  const [index, setIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const touchStartX = useRef<number | null>(null)
+  const isLast = index === INTRO_SLIDES.length - 1
+
+  useEffect(() => {
+    if (paused || isLast) return
+    const timer = window.setTimeout(() => setIndex(i => Math.min(i + 1, INTRO_SLIDES.length - 1)), 3200)
+    return () => window.clearTimeout(timer)
+  }, [index, paused, isLast])
+
+  function goTo(i: number) {
+    setIndex(Math.max(0, Math.min(i, INTRO_SLIDES.length - 1)))
+    setPaused(true)
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (touchStartX.current === null) return
+    const diff = e.changedTouches[0].clientX - touchStartX.current
+    if (Math.abs(diff) > 40) {
+      if (diff < 0 && index < INTRO_SLIDES.length - 1) goTo(index + 1)
+      else if (diff > 0 && index > 0) goTo(index - 1)
+    }
+    touchStartX.current = null
+  }
+
+  const slide = INTRO_SLIDES[index]
+
+  return (
+    <div
+      className="intro-carousel"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="intro-skip-row">
+        <button className="intro-skip-btn" onClick={onStart}>건너뛰기</button>
+      </div>
+
+      <div className="intro-slide-area" key={index}>
+        <div className="intro-emoji" style={{ ['--accent' as string]: slide.accent }}>{slide.emoji}</div>
+        {slide.visual(slide.accent)}
+        <div className="intro-title" style={{ color: slide.accent }}>{slide.title}</div>
+        <div className="intro-subtitle">
+          {slide.subtitle.split('\n').map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      </div>
+
+      <div className="intro-dots">
+        {INTRO_SLIDES.map((_, i) => (
+          <div
+            key={i}
+            className={`intro-dot ${i === index ? 'active' : ''}`}
+            style={i === index ? { background: slide.accent, width: 20 } : {}}
+            onClick={() => goTo(i)}
+          />
+        ))}
+      </div>
+
+      <button className="cta-btn" style={{ background: slide.accent }} onClick={() => {
+        if (isLast) onStart()
+        else goTo(index + 1)
+      }}>
+        {isLast ? '시작하기 →' : '다음'}
+      </button>
+    </div>
+  )
+}
+
 // ==================== ONBOARDING COMPONENT ====================
 function Onboarding({ update, onComplete }: {
   update: (fn: (d: AppData) => void) => void
@@ -486,25 +660,7 @@ function Onboarding({ update, onComplete }: {
   }
 
   if (step === 0) {
-    return (
-      <div className="onboarding">
-        <div className="onboard-title">SixBlocks</div>
-        <div className="onboard-subtitle">
-          벤저민 프랭클린의 "하루 6블록" 철학에서 출발했어요.<br/>
-          하루에 6가지 중요한 일을 정하고, 의도와 회고로 감싸며,<br/>
-          {VIRTUE_CYCLE_LENGTH}덕목으로 성장을 추적합니다.
-        </div>
-        <div className="rail-preview">
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.deepwork }} />
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.study }} />
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.rest }} />
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.organize }} />
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.evening }} />
-          <div className="rail-preview-bar" style={{ background: PURPOSE_COLORS.sleep }} />
-        </div>
-        <button className="cta-btn" onClick={() => setStep(1)}>시작하기 →</button>
-      </div>
-    )
+    return <IntroCarousel onStart={() => setStep(1)} />
   }
 
   if (step === 1) {

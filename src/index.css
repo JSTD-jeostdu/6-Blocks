@@ -988,3 +988,310 @@ body {
   padding: 6px 8px;
   margin-bottom: 8px;
 }
+
+/* ==================== Intro Carousel (첫 소개 애니메이션 슬라이드) ==================== */
+.intro-carousel {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.intro-skip-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 4px;
+}
+
+.intro-skip-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+
+.intro-slide-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  animation: introFadeIn 0.4s ease-out;
+}
+
+@keyframes introFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.intro-emoji {
+  font-size: 44px;
+  margin-bottom: 4px;
+  animation: introPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes introPop {
+  0% { transform: scale(0.3); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.intro-title {
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: -0.5px;
+  margin-top: 20px;
+}
+
+.intro-subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+.intro-visual {
+  width: 100%;
+  max-width: 300px;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Slide 1: rails */
+.intro-visual-rails {
+  gap: 5px;
+  position: relative;
+}
+
+.intro-rail-bar {
+  width: 14px;
+  height: 90px;
+  border-radius: 8px;
+  animation: introRailGrow 0.5s ease-out backwards;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes introRailGrow {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+.intro-glow {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  filter: blur(50px);
+  opacity: 0.25;
+  z-index: 0;
+  animation: introGlowPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes introGlowPulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.3; }
+}
+
+/* Slide 2: block rows */
+.intro-visual-blocks {
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.intro-block-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  animation: introSlideRight 0.45s ease-out backwards;
+}
+
+@keyframes introSlideRight {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.intro-block-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.intro-block-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.intro-block-check {
+  color: var(--rest);
+  font-weight: 800;
+  font-size: 13px;
+  opacity: 0;
+  animation: introCheckIn 0.3s ease-out 0.6s forwards;
+}
+
+@keyframes introCheckIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Slide 3: morning/evening question cards */
+.intro-visual-questions {
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.intro-q-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  animation: introSlideRight 0.5s ease-out backwards;
+}
+
+.intro-q-morning { animation-delay: 0ms; }
+.intro-q-evening { animation-delay: 180ms; }
+
+.intro-q-icon { font-size: 20px; flex-shrink: 0; }
+.intro-q-text { flex: 1; }
+
+/* Slide 4: virtue ring + stamps */
+.intro-visual-virtue {
+  flex-direction: column;
+  gap: 18px;
+}
+
+.intro-virtue-ring {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: conic-gradient(var(--stamp-accent) 0% 33%, rgba(0,0,0,0.08) 33% 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: introRingSpin 0.8s ease-out;
+}
+
+@keyframes introRingSpin {
+  from { transform: rotate(-90deg) scale(0.7); opacity: 0; }
+  to { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+
+.intro-virtue-ring-fill {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.intro-virtue-ring-label {
+  position: relative;
+  z-index: 1;
+  font-weight: 800;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.intro-stamp-row {
+  display: flex;
+  gap: 6px;
+}
+
+.intro-stamp-mini {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--stamp-bg);
+  border: 2px dashed rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  animation: introStampPop 0.35s ease-out backwards;
+}
+
+@keyframes introStampPop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+.intro-stamp-mini.earned {
+  background: var(--stamp-accent);
+  border: none;
+}
+
+/* Slide 5: device <-> cloud sync */
+.intro-visual-sync {
+  gap: 20px;
+}
+
+.intro-sync-device, .intro-sync-cloud {
+  font-size: 44px;
+  animation: introFloatY 2.4s ease-in-out infinite;
+}
+
+.intro-sync-cloud { animation-delay: 0.3s; }
+
+@keyframes introFloatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.intro-sync-arrow {
+  font-size: 24px;
+  color: var(--muted);
+  animation: introArrowPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes introArrowPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* Dots + CTA */
+.intro-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 20px 0 16px;
+}
+
+.intro-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.15);
+  cursor: pointer;
+  transition: all 0.25s ease-out;
+}
+
+[data-theme="dark"] .intro-dot { background: rgba(255,255,255,0.2); }
+
+.intro-dot.active { height: 7px; }
