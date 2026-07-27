@@ -1295,3 +1295,32 @@ body {
 [data-theme="dark"] .intro-dot { background: rgba(255,255,255,0.2); }
 
 .intro-dot.active { height: 7px; }
+
+/* 샘플 데이터로 체험해보기 버튼 */
+.intro-demo-btn {
+  background: none;
+  border: 1px dashed rgba(0,0,0,0.2);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 10px 12px;
+  margin-top: 10px;
+  width: 100%;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.intro-demo-btn:hover {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.35);
+}
+
+[data-theme="dark"] .intro-demo-btn {
+  border-color: rgba(255,255,255,0.2);
+}
+
+[data-theme="dark"] .intro-demo-btn:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.35);
+}

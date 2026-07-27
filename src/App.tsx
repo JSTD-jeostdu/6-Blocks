@@ -190,6 +190,109 @@ function getToday(data: AppData): DayData {
   return data.days[key]
 }
 
+// ==================== 샘플 데모 데이터 생성 ====================
+// "샘플 데이터로 체험해보기"를 누르면 최근 7일치의 그럴듯한 기록을 미리 채워줍니다.
+// 실제 사용자 데이터가 아니므로 언제든 지우거나 덮어써도 안전합니다.
+const DEMO_MORNING_ANSWERS = [
+  '집중력을 잃지 않고 딥워크 블록을 끝까지 지켜내는 것',
+  '조급해하지 않고 오늘 정한 순서대로만 진행하는 것',
+  '작은 일에도 성실하게, 미루지 않고 바로 처리하는 것',
+  '몸과 마음을 함께 돌보며 무리하지 않는 것',
+  '주변 사람들에게 오늘 하루만큼은 더 다정하게 대하는 것',
+  '어제 못 끝낸 일을 오늘 첫 블록에서 마무리하는 것',
+  '한 주를 돌아보고 다음 주 계획을 여유 있게 세우는 것',
+]
+
+const DEMO_EVENING_ANSWERS = [
+  '딥워크 블록 두 개를 계획대로 끝냈고, 저녁엔 가볍게 산책도 했다.',
+  '중간에 흐트러졌지만 저녁 블록에서 다시 정리하고 마무리했다.',
+  '생각보다 일이 빨리 끝나서 남은 시간엔 책을 읽었다.',
+  '컨디션이 좋지 않았지만 무리하지 않고 필수적인 것만 처리했다.',
+  '동료와 나눈 짧은 대화가 오늘 하루 중 가장 좋았던 순간이었다.',
+  '어제 미룬 일을 마무리해서 마음이 한결 가벼워졌다.',
+  '이번 주를 돌아보니 꾸준히 6블록을 지킨 게 스스로 뿌듯했다.',
+]
+
+const DEMO_REFLECTIONS: Record<Purpose, string[]> = {
+  deepwork: ['생각보다 몰입이 잘 됐다', '중간에 알림 때문에 살짝 끊겼다', '계획한 만큼 정확히 끝냈다'],
+  study: ['새로운 내용을 배워서 즐거웠다', '집중이 잘 안 됐지만 끝까지 했다', '메모를 정리하며 복습했다'],
+  rest: ['짧게 쉬었더니 오히려 개운했다', '너무 오래 쉬어서 살짝 늘어졌다', '산책하며 머리를 비웠다'],
+  organize: ['하루 계획을 다시 점검했다', '책상 정리까지 같이 끝냈다', '내일 할 일을 미리 적어뒀다'],
+  evening: ['하루를 차분히 되짚어봤다', '오늘 배운 점을 기록해뒀다', '내일 우선순위를 정리했다'],
+  sleep: ['평소보다 일찍 잠들었다', '조금 늦게 잤지만 푹 잤다', '알람 없이 자연스럽게 깼다'],
+  '': [],
+}
+
+function pick<T>(arr: T[], seed: number): T {
+  return arr[seed % arr.length]
+}
+
+// 오늘로부터 daysAgo일 전 날짜의 dateKey를 반환합니다.
+function dateKeyDaysAgo(daysAgo: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  return dateKey(d)
+}
+
+// 데모용 하루 데이터를 만듭니다. daysAgo가 0이면 오늘, 클수록 과거의 날짜입니다.
+// completeness: 0(전혀 안함)~1(완벽하게) 사이 값으로, 오래된 날일수록 더 꾸준히 채워진 느낌을 줍니다.
+function demoDay(daysAgo: number): DayData {
+  const seed = daysAgo + 1
+  const blocks: Block[] = FRANKLIN_PRESET.map((preset, i) => {
+    const purpose = preset.purpose
+    const fillThisBlock = (seed + i) % 5 !== 0 // 가끔 한 블록은 비워둬서 "완벽하지 않은" 현실감을 줌
+    const tasks: Task[] = fillThisBlock
+      ? [
+          { id: uid(), text: `${preset.title} 핵심 작업 1`, done: (seed + i) % 3 !== 0 },
+          { id: uid(), text: `${preset.title} 핵심 작업 2`, done: (seed + i) % 2 === 0 },
+        ]
+      : []
+    return {
+      id: uid(),
+      order: i,
+      title: fillThisBlock ? preset.title : '',
+      intention: fillThisBlock ? '집중해서 끝내기' : '',
+      purpose: fillThisBlock ? purpose : '',
+      startTime: fillThisBlock ? preset.startTime : undefined,
+      endTime: fillThisBlock ? preset.endTime : undefined,
+      tasks,
+      reflection: daysAgo > 0 && fillThisBlock && purpose ? pick(DEMO_REFLECTIONS[purpose], seed + i) : undefined,
+      rating: daysAgo > 0 && fillThisBlock ? (['good', 'good', 'ok', 'good', 'bad'] as const)[(seed + i) % 5] : undefined,
+    }
+  })
+
+  const morningDone = daysAgo > 0 || seed % 4 !== 0
+  const eveningDone = daysAgo > 0
+
+  return {
+    blocks,
+    morningAnswer: morningDone ? pick(DEMO_MORNING_ANSWERS, seed) : '',
+    morningResolution: '',
+    morningDone,
+    eveningAnswer: eveningDone ? pick(DEMO_EVENING_ANSWERS, seed) : '',
+    eveningDone,
+    virtueDots: eveningDone && seed % 3 !== 0 ? { [dateKeyDaysAgo(daysAgo)]: true } : {},
+    stamps: [true, true, seed % 4 !== 0, true, true, daysAgo < 2 ? false : true, false].slice(0, 7) as boolean[],
+    updatedAt: Date.now() - daysAgo * 86400000,
+  }
+}
+
+// 최근 7일치(오늘 포함) 데모 데이터로 AppData를 채웁니다. currentVirtue/cycleWeek도 그럴듯하게 채웁니다.
+function fillDemoData(base: AppData): AppData {
+  const days: Record<string, DayData> = {}
+  for (let daysAgo = 0; daysAgo < 7; daysAgo++) {
+    days[dateKeyDaysAgo(daysAgo)] = demoDay(daysAgo)
+  }
+  return {
+    ...base,
+    onboarded: true,
+    currentVirtue: 3,
+    cycleWeek: 4,
+    days,
+    updatedAt: Date.now(),
+  }
+}
+
 function currentTimeStr(): string {
   return new Date().toTimeString().slice(0, 5)
 }
@@ -327,10 +430,14 @@ export default function App() {
 
   // ==================== ONBOARDING ====================
   if (screen === 'onboarding') {
-    return <Onboarding update={update} onComplete={() => {
-      update(d => { d.onboarded = true })
-      setScreen('canvas')
-    }} />
+    return <Onboarding
+      update={update}
+      onComplete={() => {
+        update(d => { d.onboarded = true })
+        setScreen('canvas')
+      }}
+      onDemoComplete={() => setScreen('canvas')}
+    />
   }
 
   const accountPanel = (
@@ -560,7 +667,7 @@ const INTRO_SLIDES: IntroSlide[] = [
   },
 ]
 
-function IntroCarousel({ onStart }: { onStart: () => void }) {
+function IntroCarousel({ onStart, onDemo }: { onStart: () => void; onDemo: () => void }) {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const touchStartX = useRef<number | null>(null)
@@ -631,14 +738,19 @@ function IntroCarousel({ onStart }: { onStart: () => void }) {
       }}>
         {isLast ? '시작하기 →' : '다음'}
       </button>
+
+      <button className="intro-demo-btn" onClick={onDemo}>
+        ✨ 샘플 데이터로 먼저 체험해보기
+      </button>
     </div>
   )
 }
 
 // ==================== ONBOARDING COMPONENT ====================
-function Onboarding({ update, onComplete }: {
+function Onboarding({ update, onComplete, onDemoComplete }: {
   update: (fn: (d: AppData) => void) => void
   onComplete: () => void
+  onDemoComplete: () => void
 }) {
   const [step, setStep] = useState(0)
   // 기본값: 프랭클린 원형 프리셋. "직접 입력할래요"를 누르면 manual로 전환됩니다.
@@ -660,7 +772,13 @@ function Onboarding({ update, onComplete }: {
   }
 
   if (step === 0) {
-    return <IntroCarousel onStart={() => setStep(1)} />
+    return <IntroCarousel onStart={() => setStep(1)} onDemo={() => {
+      update(d => {
+        const filled = fillDemoData(d)
+        Object.assign(d, filled)
+      })
+      onDemoComplete()
+    }} />
   }
 
   if (step === 1) {
