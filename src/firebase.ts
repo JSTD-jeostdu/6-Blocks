@@ -11,7 +11,7 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth'
-import { getFirestore, doc, getDoc, setDoc, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, runTransaction, type Firestore } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
@@ -66,10 +66,19 @@ export async function fetchRemoteData<T>(uid: string): Promise<T | null> {
   return snap.data() as T
 }
 
-// 로컬 데이터를 클라우드(Firestore)에 통째로 저장(덮어쓰기)합니다.
-// 주의: 병합은 이 함수를 호출하기 "전에" mergeAppData 등으로 미리 처리해야 합니다.
-export async function pushRemoteData<T extends object>(uid: string, data: T): Promise<void> {
-  if (!dbInstance) return
+// 트랜잭션 안에서 최신 원격본을 다시 읽고 병합한 뒤 저장합니다.
+// 여러 기기가 동시에 저장해도 다른 날짜의 기록을 통째로 덮어쓰지 않습니다.
+export async function syncRemoteData<T extends object>(
+  uid: string,
+  localData: T,
+  merge: (local: T, remote: T) => T,
+): Promise<T> {
+  if (!dbInstance) return localData
   const ref = doc(dbInstance, 'users', uid)
-  await setDoc(ref, data)
+  return runTransaction(dbInstance, async transaction => {
+    const snap = await transaction.get(ref)
+    const merged = snap.exists() ? merge(localData, snap.data() as T) : localData
+    transaction.set(ref, merged)
+    return merged
+  })
 }

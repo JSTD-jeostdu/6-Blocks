@@ -1,51 +1,31 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser, fetchRemoteData, pushRemoteData, type SyncUser } from './firebase'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser, fetchRemoteData, syncRemoteData, type SyncUser } from './firebase'
+import {
+  dateFromKey,
+  dateKey,
+  cyclePosition,
+  dayFromTemplate,
+  defaultData,
+  ensureDay,
+  FRANKLIN_PRESET,
+  incompleteTasks,
+  mergeAppData,
+  migrateData,
+  shiftDateKey,
+  startOfWeekKey,
+  templateFromBlocks,
+  uid,
+  weekDateKeys,
+  type AppData,
+  type Block,
+  type DayData,
+  type Purpose,
+  type Task,
+} from './appData'
 
 // ==================== TYPES ====================
-type Purpose = 'deepwork' | 'study' | 'rest' | 'organize' | 'evening' | 'sleep' | ''
 type Screen = 'onboarding' | 'canvas' | 'morning' | 'evening' | 'virtue' | 'review'
 type Tab = 'canvas' | 'virtue' | 'review'
-
-interface Task {
-  id: string
-  text: string
-  done: boolean
-}
-
-interface Block {
-  id: string
-  order: number
-  title: string
-  intention: string
-  purpose: Purpose
-  startTime?: string
-  endTime?: string
-  tasks: Task[]
-  reflection?: string
-  rating?: string
-}
-
-interface DayData {
-  blocks: Block[]
-  morningAnswer: string
-  morningResolution: string
-  morningDone: boolean
-  eveningAnswer: string
-  eveningDone: boolean
-  virtueDots: Record<string, boolean>  // virtueIndex -> earned
-  stamps: boolean[]  // 7 days
-  updatedAt: number  // 마지막 수정 시각 (ms) - 병합(merge) 시 최신 데이터를 판별하는 데 사용
-}
-
-interface AppData {
-  onboarded: boolean
-  dayStartTime: string
-  currentVirtue: number
-  cycleWeek: number
-  theme: 'light' | 'dark'
-  days: Record<string, DayData>  // dateKey -> data
-  updatedAt: number  // 마지막 수정 시각 (ms)
-}
 
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
@@ -87,107 +67,21 @@ const VIRTUES = [
 
 const VIRTUE_CYCLE_LENGTH = VIRTUES.length
 
-const FRANKLIN_PRESET = [
-  { title: '기상·계획', purpose: 'organize' as Purpose, startTime: '05:00', endTime: '08:00' },
-  { title: '딥워크', purpose: 'deepwork' as Purpose, startTime: '08:00', endTime: '12:00' },
-  { title: '독서·식사', purpose: 'study' as Purpose, startTime: '12:00', endTime: '14:00' },
-  { title: '딥워크 II', purpose: 'deepwork' as Purpose, startTime: '14:00', endTime: '18:00' },
-  { title: '정리·반성', purpose: 'evening' as Purpose, startTime: '18:00', endTime: '22:00' },
-  { title: '수면', purpose: 'sleep' as Purpose, startTime: '22:00', endTime: '05:00' },
-]
-
 const STORAGE_KEY = 'sixblocks-data'
 
 // ==================== HELPERS ====================
-function dateKey(d = new Date()): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function uid(): string {
-  return Math.random().toString(36).slice(2, 10)
-}
-
-function emptyBlocks(): Block[] {
-  return Array.from({ length: 6 }, (_, i) => ({
-    id: uid(),
-    order: i,
-    title: '',
-    intention: '',
-    purpose: '',
-    tasks: [],
-  }))
-}
-
-function emptyDay(): DayData {
-  return {
-    blocks: emptyBlocks(),
-    morningAnswer: '',
-    morningResolution: '',
-    morningDone: false,
-    eveningAnswer: '',
-    eveningDone: false,
-    virtueDots: {},
-    stamps: [false, false, false, false, false, false, false],
-    updatedAt: Date.now(),
-  }
-}
-
-function defaultData(): AppData {
-  return {
-    onboarded: false,
-    dayStartTime: '00:00',
-    currentVirtue: 0,
-    cycleWeek: 1,
-    theme: 'light',
-    days: {},
-    updatedAt: Date.now(),
-  }
-}
-
 function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...defaultData(), ...JSON.parse(raw) }
+    if (raw) return ensureDay(migrateData(JSON.parse(raw)), dateKey())
   } catch {}
-  return defaultData()
+  return ensureDay(defaultData(), dateKey())
 }
 
 function saveData(data: AppData) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch {}
-}
-
-// ==================== 클라우드 병합(MERGE) 로직 ====================
-// 목표: 기기(로컬)에 있던 데이터와 클라우드(원격)에 있던 데이터를 "덮어쓰지 않고" 합칩니다.
-// - 날짜(day)별로 나눠서 비교하고, 각 날짜마다 updatedAt(마지막 수정 시각)이 더 최신인 쪽을 채택합니다.
-// - 두 쪽에만 있는 날짜는 그대로 살립니다 (예: 로컬에만 있는 어제 기록 + 클라우드에만 있는 다른 기기의 오늘 기록).
-// - 상단 설정값(onboarded, currentVirtue, cycleWeek, theme 등)도 updatedAt이 더 최신인 쪽을 채택합니다.
-function mergeAppData(local: AppData, remote: AppData): AppData {
-  const merged: AppData = local.updatedAt >= remote.updatedAt ? { ...local } : { ...remote }
-
-  const allDayKeys = new Set([...Object.keys(local.days || {}), ...Object.keys(remote.days || {})])
-  const mergedDays: Record<string, DayData> = {}
-  allDayKeys.forEach(key => {
-    const l = local.days?.[key]
-    const r = remote.days?.[key]
-    if (l && r) {
-      mergedDays[key] = (l.updatedAt || 0) >= (r.updatedAt || 0) ? l : r
-    } else {
-      mergedDays[key] = (l || r)!
-    }
-  })
-  merged.days = mergedDays
-  merged.updatedAt = Date.now()
-  return merged
-}
-
-function getToday(data: AppData): DayData {
-  const key = dateKey()
-  if (!data.days[key]) {
-    data.days[key] = emptyDay()
-  }
-  return data.days[key]
 }
 
 // ==================== 샘플 데모 데이터 생성 ====================
@@ -288,6 +182,13 @@ function fillDemoData(base: AppData): AppData {
     onboarded: true,
     currentVirtue: 3,
     cycleWeek: 4,
+    cycleStartVirtue: 0,
+    cycleStartedOn: shiftDateKey(startOfWeekKey(dateKey()), -21),
+    blockTemplate: FRANKLIN_PRESET.map(block => ({ ...block })),
+    virtueHistory: Object.fromEntries(Object.entries(days)
+      .filter(([key, day]) => day.virtueDots[key])
+      .map(([key]) => [key, true])),
+    virtueUpdatedAt: Object.fromEntries(Object.entries(days).map(([key, day]) => [key, day.updatedAt])),
     days,
     updatedAt: Date.now(),
   }
@@ -310,6 +211,7 @@ function isCurrentBlock(block: Block): boolean {
 // ==================== MAIN APP ====================
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadData())
+  const [selectedDate, setSelectedDate] = useState(() => dateKey())
   const [tab, setTab] = useState<Tab>('canvas')
   const [screen, setScreen] = useState<Screen>(() => {
     const d = loadData()
@@ -322,6 +224,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [syncError, setSyncError] = useState<string>('')
   const hasMergedRef = useRef(false)
+  const skipNextUploadRef = useRef(false)
 
   // Save on every data change
   useEffect(() => { saveData(data) }, [data])
@@ -337,7 +240,6 @@ export default function App() {
     const unsub = onAuthChange(async user => {
       setAuthUser(user)
       if (user && !hasMergedRef.current) {
-        hasMergedRef.current = true
         setSyncStatus('syncing')
         setSyncError('')
         try {
@@ -346,6 +248,7 @@ export default function App() {
             const merged = remote ? mergeAppData(prev, remote) : { ...prev, updatedAt: Date.now() }
             return merged
           })
+          hasMergedRef.current = true
           setSyncStatus('synced')
         } catch (e) {
           setSyncStatus('error')
@@ -364,10 +267,16 @@ export default function App() {
   // (이미 위에서 로컬↔클라우드를 병합한 뒤이므로, 여기서의 저장은 "합쳐진 최신본"을 올리는 것 → 데이터 손실 없음)
   useEffect(() => {
     if (!authUser || !isFirebaseConfigured || !hasMergedRef.current) return
+    if (skipNextUploadRef.current) {
+      skipNextUploadRef.current = false
+      return
+    }
     const timer = window.setTimeout(async () => {
       setSyncStatus('syncing')
       try {
-        await pushRemoteData(authUser.uid, data)
+        const merged = await syncRemoteData(authUser.uid, data, mergeAppData)
+        skipNextUploadRef.current = true
+        setData(merged)
         setSyncStatus('synced')
       } catch (e) {
         setSyncStatus('error')
@@ -395,7 +304,7 @@ export default function App() {
     setSyncStatus('idle')
   }
 
-  const today = getToday(data)
+  const selectedDay = data.days[selectedDate] || dayFromTemplate(data.blockTemplate)
 
   // Update data helper
   const update = useCallback((updater: (d: AppData) => void) => {
@@ -407,15 +316,14 @@ export default function App() {
     })
   }, [])
 
-  // Update today's data helper
+  // Update the selected day's data helper
   // NOTE: Must deep-clone blocks/tasks (not just the day object) because React 18
   // StrictMode invokes the setState updater function twice in development.
   // A shallow clone would let both invocations mutate the SAME nested arrays
   // (e.g. tasks.push(...)), causing duplicate entries from a single click.
-  const updateToday = useCallback((updater: (day: DayData) => void) => {
+  const updateSelectedDay = useCallback((updater: (day: DayData) => void) => {
     setData(prev => {
-      const key = dateKey()
-      const prevDay = prev.days[key] || emptyDay()
+      const prevDay = prev.days[selectedDate] || dayFromTemplate(prev.blockTemplate)
       const nextDay: DayData = {
         ...prevDay,
         blocks: prevDay.blocks.map(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t })) })),
@@ -424,9 +332,52 @@ export default function App() {
       }
       updater(nextDay)
       nextDay.updatedAt = Date.now()
-      return { ...prev, days: { ...prev.days, [key]: nextDay }, updatedAt: Date.now() }
+      const nextVirtue = Boolean(nextDay.virtueDots[selectedDate])
+      const virtueChanged = nextVirtue !== Boolean(prev.virtueHistory[selectedDate])
+      return {
+        ...prev,
+        days: { ...prev.days, [selectedDate]: nextDay },
+        virtueHistory: { ...prev.virtueHistory, [selectedDate]: nextVirtue },
+        virtueUpdatedAt: virtueChanged
+          ? { ...prev.virtueUpdatedAt, [selectedDate]: Date.now() }
+          : prev.virtueUpdatedAt,
+        updatedAt: Date.now(),
+      }
     })
-  }, [])
+  }, [selectedDate])
+
+  function selectDate(key: string) {
+    setData(prev => ensureDay(prev, key))
+    setSelectedDate(key)
+    setScreen('canvas')
+  }
+
+  function handleExportData() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `sixblocks-backup-${dateKey()}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleResetData() {
+    if (!window.confirm('모든 기기 내 기록을 초기화할까요? 이 작업은 되돌릴 수 없어요.')) return
+    const fresh = ensureDay(defaultData(), dateKey())
+    fresh.resetAt = Date.now()
+    fresh.updatedAt = fresh.resetAt
+    setData(fresh)
+    setSelectedDate(dateKey())
+    setScreen('onboarding')
+    setTab('canvas')
+  }
+
+  useEffect(() => {
+    const position = cyclePosition(data, dateKey(), VIRTUE_CYCLE_LENGTH)
+    if (position.week === data.cycleWeek && position.virtue === data.currentVirtue) return
+    setData(prev => ({ ...prev, cycleWeek: position.week, currentVirtue: position.virtue, updatedAt: Date.now() }))
+  }, [data])
 
   // ==================== ONBOARDING ====================
   if (screen === 'onboarding') {
@@ -447,17 +398,19 @@ export default function App() {
       syncError={syncError}
       onSignIn={handleGoogleSignIn}
       onSignOut={handleSignOut}
+      onExport={handleExportData}
+      onReset={handleResetData}
     />
   )
 
   // ==================== MORNING QUESTION ====================
   if (screen === 'morning') {
-    return <MorningQuestion today={today} updateToday={updateToday} onDone={() => setScreen('canvas')} />
+    return <MorningQuestion today={selectedDay} updateToday={updateSelectedDay} onDone={() => setScreen('canvas')} />
   }
 
   // ==================== EVENING QUESTION ====================
   if (screen === 'evening') {
-    return <EveningQuestion today={today} updateToday={updateToday} onDone={() => setScreen('canvas')} />
+    return <EveningQuestion today={selectedDay} updateToday={updateSelectedDay} selectedDate={selectedDate} onDone={() => setScreen('canvas')} />
   }
 
   // ==================== MAIN APP ====================
@@ -466,7 +419,7 @@ export default function App() {
       <div className="app-header">
         <div>
           <div className="app-title">SixBlocks</div>
-          <div className="app-date">{new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
+          <div className="app-date">{dateFromKey(selectedDate).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
         </div>
         <div className="header-right">
           {accountPanel}
@@ -476,37 +429,50 @@ export default function App() {
         </div>
       </div>
 
-      <div className="tab-bar">
-        <div className={`tab ${tab === 'canvas' ? 'active' : ''}`} onClick={() => setTab('canvas')}>캔버스</div>
-        <div className={`tab ${tab === 'virtue' ? 'active' : ''}`} onClick={() => setTab('virtue')}>덕목</div>
-        <div className={`tab ${tab === 'review' ? 'active' : ''}`} onClick={() => setTab('review')}>리뷰</div>
+      <div className="date-nav" aria-label="날짜 이동">
+        <button onClick={() => selectDate(shiftDateKey(selectedDate, -1))} aria-label="이전 날짜">‹</button>
+        <button className={selectedDate === dateKey() ? 'active' : ''} onClick={() => selectDate(dateKey())}>
+          {selectedDate === dateKey() ? '오늘' : '오늘로 이동'}
+        </button>
+        <button onClick={() => selectDate(shiftDateKey(selectedDate, 1))} aria-label="다음 날짜">›</button>
       </div>
+
+      <nav className="tab-bar" aria-label="주요 화면">
+        <button className={`tab ${tab === 'canvas' ? 'active' : ''}`} aria-current={tab === 'canvas' ? 'page' : undefined} onClick={() => setTab('canvas')}>캔버스</button>
+        <button className={`tab ${tab === 'virtue' ? 'active' : ''}`} aria-current={tab === 'virtue' ? 'page' : undefined} onClick={() => setTab('virtue')}>덕목</button>
+        <button className={`tab ${tab === 'review' ? 'active' : ''}`} aria-current={tab === 'review' ? 'page' : undefined} onClick={() => setTab('review')}>리뷰</button>
+      </nav>
 
       <div className="content page-enter" key={tab}>
         {tab === 'canvas' && (
           <CanvasTab
-            today={today}
-            updateToday={updateToday}
+            today={selectedDay}
+            updateToday={updateSelectedDay}
+            selectedDate={selectedDate}
+            previousDay={data.days[shiftDateKey(selectedDate, -1)]}
+            onSaveTemplate={() => update(d => { d.blockTemplate = templateFromBlocks(selectedDay.blocks) })}
             dragIndex={dragIndex}
             setDragIndex={setDragIndex}
             onMorning={() => setScreen('morning')}
             onEvening={() => setScreen('evening')}
           />
         )}
-        {tab === 'virtue' && <VirtueTab data={data} update={update} today={today} updateToday={updateToday} />}
-        {tab === 'review' && <ReviewTab today={today} data={data} />}
+        {tab === 'virtue' && <VirtueTab data={data} update={update} selectedDate={selectedDate} />}
+        {tab === 'review' && <ReviewTab today={selectedDay} data={data} selectedDate={selectedDate} />}
       </div>
     </div>
   )
 }
 
 // ==================== ACCOUNT / GOOGLE SYNC PANEL ====================
-function AccountPanel({ authUser, syncStatus, syncError, onSignIn, onSignOut }: {
+function AccountPanel({ authUser, syncStatus, syncError, onSignIn, onSignOut, onExport, onReset }: {
   authUser: SyncUser | null
   syncStatus: SyncStatus
   syncError: string
   onSignIn: () => void
   onSignOut: () => void
+  onExport: () => void
+  onReset: () => void
 }) {
   const [open, setOpen] = useState(false)
 
@@ -562,6 +528,10 @@ function AccountPanel({ authUser, syncStatus, syncError, onSignIn, onSignOut }: 
               </button>
             </>
           )}
+          <div className="account-data-actions">
+            <button onClick={onExport}>백업 파일 내보내기</button>
+            <button className="danger" onClick={onReset}>모든 기록 초기화</button>
+          </div>
         </div>
       )}
     </div>
@@ -856,8 +826,11 @@ function Onboarding({ update, onComplete, onDemoComplete }: {
             update(d => {
               d.onboarded = true
               d.currentVirtue = selectedVirtue
+              d.cycleStartVirtue = selectedVirtue
+              d.cycleWeek = 1
+              d.cycleStartedOn = startOfWeekKey(dateKey())
               const key = dateKey()
-              if (!d.days[key]) d.days[key] = emptyDay()
+              if (!d.days[key]) d.days[key] = dayFromTemplate([])
               d.days[key].blocks = blockTitles.map((title, i) => ({
                 id: uid(),
                 order: i,
@@ -868,6 +841,7 @@ function Onboarding({ update, onComplete, onDemoComplete }: {
                 endTime: mode === 'preset' ? FRANKLIN_PRESET[i].endTime : undefined,
                 tasks: [],
               }))
+              d.blockTemplate = templateFromBlocks(d.days[key].blocks)
             })
             onComplete()
           }}>
@@ -882,9 +856,12 @@ function Onboarding({ update, onComplete, onDemoComplete }: {
 }
 
 // ==================== CANVAS TAB ====================
-function CanvasTab({ today, updateToday, dragIndex, setDragIndex, onMorning, onEvening }: {
+function CanvasTab({ today, updateToday, selectedDate, previousDay, onSaveTemplate, dragIndex, setDragIndex, onMorning, onEvening }: {
   today: DayData
   updateToday: (fn: (day: DayData) => void) => void
+  selectedDate: string
+  previousDay?: DayData
+  onSaveTemplate: () => void
   dragIndex: number | null
   setDragIndex: (i: number | null) => void
   onMorning: () => void
@@ -892,6 +869,8 @@ function CanvasTab({ today, updateToday, dragIndex, setDragIndex, onMorning, onE
 }) {
   const [editingTime, setEditingTime] = useState<number | null>(null)
   const [timerState, setTimerState] = useState<{ blockId: string; seconds: number; running: boolean } | null>(null)
+  const [carrySelection, setCarrySelection] = useState<Record<string, boolean>>({})
+  const [templateSaved, setTemplateSaved] = useState(false)
   const timerInterval = useRef<number | null>(null)
 
   // Timer effect
@@ -923,11 +902,49 @@ function CanvasTab({ today, updateToday, dragIndex, setDragIndex, onMorning, onE
   }
 
   const filledCount = today.blocks.filter(b => b.title.trim() || b.purpose).length
+  const carryCandidates = useMemo(() => incompleteTasks(previousDay).filter(({ blockOrder, task }) =>
+    !today.blocks[blockOrder]?.tasks.some(existing => existing.text.trim() === task.text.trim())), [previousDay, today.blocks])
+
+  useEffect(() => {
+    setCarrySelection(Object.fromEntries(carryCandidates.map(({ task }) => [task.id, true])))
+    setTemplateSaved(false)
+  }, [selectedDate, carryCandidates])
+
+  function carrySelectedTasks() {
+    const chosen = carryCandidates.filter(({ task }) => carrySelection[task.id])
+    updateToday(day => {
+      chosen.forEach(({ blockOrder, task }) => {
+        const target = day.blocks[blockOrder]
+        if (target) target.tasks.push({ ...task, id: uid(), done: false })
+      })
+    })
+    setCarrySelection({})
+  }
 
   return (
     <div>
+      {carryCandidates.length > 0 && (
+        <div className="rollover-card">
+          <div className="review-title">어제 못 끝낸 일 가져오기</div>
+          <div className="rollover-list">
+            {carryCandidates.map(({ task }) => (
+              <label key={task.id}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(carrySelection[task.id])}
+                  onChange={event => setCarrySelection(current => ({ ...current, [task.id]: event.target.checked }))}
+                />
+                <span>{task.text}</span>
+              </label>
+            ))}
+          </div>
+          <button className="small-cta-btn" disabled={!Object.values(carrySelection).some(Boolean)} onClick={carrySelectedTasks}>
+            선택한 작업 가져오기
+          </button>
+        </div>
+      )}
       {/* Morning/Evening prompts */}
-      {!today.morningDone && (
+      {selectedDate === dateKey() && !today.morningDone && (
         <div className="question-card" style={{ cursor: 'pointer' }} onClick={onMorning}>
           <div className="question-label">MORNING INTENTION</div>
           <div className="question-text">오늘 나는 무슨 선을 행할 것인가?</div>
@@ -936,14 +953,19 @@ function CanvasTab({ today, updateToday, dragIndex, setDragIndex, onMorning, onE
         </div>
       )}
 
-      {today.morningDone && !today.eveningDone && (
+      {selectedDate === dateKey() && today.morningDone && !today.eveningDone && (
         <button className="link-btn" onClick={onEvening}>🌙 저녁 반성 질문 작성하기</button>
       )}
 
-      <div className="section-title">6가지 중요한 일 <span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 400 }}>({filledCount}/6)</span></div>
+      <div className="section-heading-row">
+        <div className="section-title">6가지 중요한 일 <span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 400 }}>({filledCount}/6)</span></div>
+        <button className="small-link-btn" onClick={() => { onSaveTemplate(); setTemplateSaved(true) }}>
+          {templateSaved ? '기본값 저장됨 ✓' : '이 구성을 기본값으로'}
+        </button>
+      </div>
 
       {today.blocks.map((block, i) => {
-        const isNow = isCurrentBlock(block) || (timerState?.blockId === block.id && timerState.running)
+        const isNow = selectedDate === dateKey() && (isCurrentBlock(block) || (timerState?.blockId === block.id && timerState.running))
         const isSleep = block.purpose === 'sleep'
         const purposeColor = block.purpose ? PURPOSE_COLORS[block.purpose] : '#CCC'
         const hasTime = block.startTime && block.endTime
@@ -1139,9 +1161,10 @@ function MorningQuestion({ today, updateToday, onDone }: {
 }
 
 // ==================== EVENING QUESTION ====================
-function EveningQuestion({ today, updateToday, onDone }: {
+function EveningQuestion({ today, updateToday, selectedDate, onDone }: {
   today: DayData
   updateToday: (fn: (day: DayData) => void) => void
+  selectedDate: string
   onDone: () => void
 }) {
   const [answer, setAnswer] = useState(today.eveningAnswer)
@@ -1206,16 +1229,15 @@ function EveningQuestion({ today, updateToday, onDone }: {
             <button
               className="stamp"
               style={{
-                background: today.virtueDots[String(dateKey())] ? 'var(--stamp-accent)' : 'var(--stamp-bg)',
-                border: today.virtueDots[String(dateKey())] ? 'none' : '2px dashed rgba(0,0,0,0.15)',
+                background: today.virtueDots[selectedDate] ? 'var(--stamp-accent)' : 'var(--stamp-bg)',
+                border: today.virtueDots[selectedDate] ? 'none' : '2px dashed rgba(0,0,0,0.15)',
                 color: '#fff',
               }}
               onClick={() => updateToday(day => {
-                const key = String(dateKey())
-                day.virtueDots[key] = !day.virtueDots[key]
+                day.virtueDots[selectedDate] = !day.virtueDots[selectedDate]
               })}
             >
-              {today.virtueDots[String(dateKey())] ? '✓' : ''}
+              {today.virtueDots[selectedDate] ? '✓' : ''}
             </button>
             <span style={{ fontSize: 14, fontWeight: 600 }}>{VIRTUES[0].ko} ({VIRTUES[0].en})</span>
           </div>
@@ -1236,21 +1258,33 @@ function EveningQuestion({ today, updateToday, onDone }: {
 }
 
 // ==================== VIRTUE TAB ====================
-function VirtueTab({ data, update, today, updateToday }: {
+function VirtueTab({ data, update, selectedDate }: {
   data: AppData
   update: (fn: (d: AppData) => void) => void
-  today: DayData
-  updateToday: (fn: (day: DayData) => void) => void
+  selectedDate: string
 }) {
-  const virtue = VIRTUES[data.currentVirtue]
-  const progress = (data.cycleWeek / VIRTUE_CYCLE_LENGTH) * 100
-  const dayKey = dateKey()
-  const todayEarned = !!today.virtueDots[dayKey]
+  const position = cyclePosition(data, selectedDate, VIRTUE_CYCLE_LENGTH)
+  const virtue = VIRTUES[position.virtue]
+  const progress = (position.week / VIRTUE_CYCLE_LENGTH) * 100
+  const selectedEarned = Boolean(data.virtueHistory[selectedDate])
+  const weekKeys = weekDateKeys(selectedDate)
 
-  // Weekly stamps (simplified - use current week's days)
-  const stamps = today.stamps || [false, false, false, false, false, false, false]
-  const todayDay = new Date().getDay() // 0=Sun
-  const stampIndex = todayDay === 0 ? 6 : todayDay - 1
+  function toggleVirtue(key: string) {
+    update(d => {
+      const earned = !d.virtueHistory[key]
+      d.virtueHistory = { ...d.virtueHistory, [key]: earned }
+      d.virtueUpdatedAt = { ...d.virtueUpdatedAt, [key]: Date.now() }
+      const existing = d.days[key] || dayFromTemplate(d.blockTemplate)
+      d.days = {
+        ...d.days,
+        [key]: {
+          ...existing,
+          virtueDots: { ...existing.virtueDots, [key]: earned },
+          updatedAt: Date.now(),
+        },
+      }
+    })
+  }
 
   return (
     <div>
@@ -1258,10 +1292,10 @@ function VirtueTab({ data, update, today, updateToday }: {
       <div className="virtue-cycle-card">
         <div className="cycle-header">
           <div>
-            <div className="cycle-week">WEEK {data.cycleWeek} / {VIRTUE_CYCLE_LENGTH}</div>
+            <div className="cycle-week">WEEK {position.week} / {VIRTUE_CYCLE_LENGTH}</div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>이번 주 덕목: {virtue.ko}</div>
           </div>
-          <div className="cycle-number tabular">{data.cycleWeek}<span style={{ fontSize: 20, opacity: 0.5 }}>/{VIRTUE_CYCLE_LENGTH}</span></div>
+          <div className="cycle-number tabular">{position.week}<span style={{ fontSize: 20, opacity: 0.5 }}>/{VIRTUE_CYCLE_LENGTH}</span></div>
         </div>
         <div className="cycle-progress">
           <div className="cycle-progress-fill" style={{ width: `${progress}%` }} />
@@ -1271,32 +1305,34 @@ function VirtueTab({ data, update, today, updateToday }: {
       {/* Weekly stamps */}
       <div className="section-title" style={{ fontSize: 16 }}>이번 주 인장</div>
       <div className="stamp-row">
-        {['월', '화', '수', '목', '금', '토', '일'].map((d, i) => (
-          <div key={i} className={`stamp ${stamps[i] ? 'earned' : i === stampIndex ? 'today' : 'empty'}`}
-            onClick={() => updateToday(day => { day.stamps[i] = !day.stamps[i] })}>
-            {stamps[i] ? '✓' : <span style={{ fontSize: 10, color: 'var(--muted)' }}>{d}</span>}
-          </div>
+        {['월', '화', '수', '목', '금', '토', '일'].map((label, index) => (
+          <button key={weekKeys[index]} className={`stamp ${data.virtueHistory[weekKeys[index]] ? 'earned' : weekKeys[index] === dateKey() ? 'today' : 'empty'}`}
+            aria-label={`${weekKeys[index]} 덕목 기록`}
+            onClick={() => toggleVirtue(weekKeys[index])}>
+            {data.virtueHistory[weekKeys[index]] ? '✓' : <span style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</span>}
+          </button>
         ))}
       </div>
 
       {/* Today's virtue dot */}
       <div className="review-card">
-        <div className="review-title">오늘 덕목: {virtue.ko} ({virtue.en})</div>
+        <div className="review-title">선택한 날의 덕목: {virtue.ko} ({virtue.en})</div>
         <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic', marginBottom: 12 }}>"{virtue.precept}"</div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <button
             className="stamp"
             style={{
-              background: todayEarned ? 'var(--stamp-accent)' : 'var(--stamp-bg)',
-              border: todayEarned ? 'none' : '2px dashed rgba(0,0,0,0.15)',
+              background: selectedEarned ? 'var(--stamp-accent)' : 'var(--stamp-bg)',
+              border: selectedEarned ? 'none' : '2px dashed rgba(0,0,0,0.15)',
               color: '#fff',
               width: 48, height: 48, fontSize: 22,
             }}
-            onClick={() => updateToday(day => { day.virtueDots[dayKey] = !day.virtueDots[dayKey] })}
+            aria-label={`${selectedDate} 덕목 기록`}
+            onClick={() => toggleVirtue(selectedDate)}
           >
-            {todayEarned ? '✓' : ''}
+            {selectedEarned ? '✓' : ''}
           </button>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>{todayEarned ? '오늘 덕목 달성! 🎉' : '탭해서 기록'}</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{selectedEarned ? '덕목을 지켰어요! 🎉' : '탭해서 기록'}</span>
         </div>
       </div>
 
@@ -1304,45 +1340,48 @@ function VirtueTab({ data, update, today, updateToday }: {
       <div className="section-title" style={{ fontSize: 16 }}>{VIRTUE_CYCLE_LENGTH}덕목</div>
       {VIRTUES.map((v, i) => (
         <div key={i} className="virtue-item">
-          <div className={`virtue-dot ${i === data.currentVirtue ? 'active' : ''}`} />
+          <div className={`virtue-dot ${i === position.virtue ? 'active' : ''}`} />
           <div>
             <div className="virtue-name">{v.ko} <span className="virtue-name-en">({v.en})</span></div>
             <div className="virtue-precept">"{v.precept}"</div>
           </div>
-          {i === data.currentVirtue && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--study)' }}>이번 주</span>}
+          {i === position.virtue && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--study)' }}>이번 주</span>}
         </div>
       ))}
 
-      {/* Next virtue button */}
-      <div style={{ marginTop: 16 }}>
-        <button className="cta-btn" onClick={() => update(d => {
-          if (d.cycleWeek < VIRTUE_CYCLE_LENGTH) {
-            d.cycleWeek++
-            d.currentVirtue = (d.currentVirtue + 1) % VIRTUE_CYCLE_LENGTH
-          } else {
-            d.cycleWeek = 1
-            d.currentVirtue = 0
-          }
-        })}>
-          {data.cycleWeek < VIRTUE_CYCLE_LENGTH ? '다음 주 덕목으로 →' : '새 사이클 시작 🏆'}
-        </button>
-      </div>
+      <div className="cycle-auto-note">덕목은 매주 월요일 자동으로 다음 항목으로 전환됩니다.</div>
     </div>
   )
 }
 
 // ==================== REVIEW TAB ====================
-function ReviewTab({ today, data }: { today: DayData; data: AppData }) {
+function ReviewTab({ today, data, selectedDate }: { today: DayData; data: AppData; selectedDate: string }) {
   const filledBlocks = today.blocks.filter(b => b.title.trim() || b.purpose).length
   const fillRate = Math.round((filledBlocks / 6) * 100)
   const doneTasks = today.blocks.reduce((acc, b) => acc + b.tasks.filter(t => t.done).length, 0)
   const totalTasks = today.blocks.reduce((acc, b) => acc + b.tasks.length, 0)
   const taskRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
-  const virtueEarned = Object.values(today.virtueDots).filter(Boolean).length
+  const virtueEarned = Boolean(data.virtueHistory[selectedDate])
+  const position = cyclePosition(data, selectedDate, VIRTUE_CYCLE_LENGTH)
+  const weekDays = weekDateKeys(selectedDate).map(key => data.days[key]).filter(Boolean)
+  const weeklyCompletedBlocks = weekDays.reduce((sum, day) => sum + day.blocks.filter(block => block.title.trim() || block.purpose).length, 0)
+  const weeklyReflections = weekDays.filter(day => day.eveningDone).length
 
   return (
     <div>
-      <div className="section-title">오늘 리뷰</div>
+      <div className="section-title">{dateFromKey(selectedDate).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} 리뷰</div>
+
+      <div className="review-card review-card--highlight">
+        <div className="review-title">이번 주 한눈에 보기</div>
+        <div className="review-stat">
+          <span className="review-stat-label">작성한 블록</span>
+          <span className="review-stat-value">{weeklyCompletedBlocks}개</span>
+        </div>
+        <div className="review-stat">
+          <span className="review-stat-label">저녁 회고</span>
+          <span className="review-stat-value">{weeklyReflections} / 7일</span>
+        </div>
+      </div>
 
       <div className="review-card">
         <div className="review-title">📊 블록 채움률</div>
@@ -1392,15 +1431,15 @@ function ReviewTab({ today, data }: { today: DayData; data: AppData }) {
         <div className="review-title">🎯 덕목 진행</div>
         <div className="review-stat">
           <span className="review-stat-label">이번 주 덕목</span>
-          <span className="review-stat-value">{VIRTUES[data.currentVirtue].ko}</span>
+          <span className="review-stat-value">{VIRTUES[position.virtue].ko}</span>
         </div>
         <div className="review-stat">
           <span className="review-stat-label">사이클</span>
-          <span className="review-stat-value">{data.cycleWeek} / {VIRTUE_CYCLE_LENGTH}</span>
+          <span className="review-stat-value">{position.week} / {VIRTUE_CYCLE_LENGTH}</span>
         </div>
         <div className="review-stat">
-          <span className="review-stat-label">오늘 도트</span>
-          <span className="review-stat-value">{virtueEarned > 0 ? '● 기록됨' : '○ 미기록'}</span>
+          <span className="review-stat-label">선택한 날의 도트</span>
+          <span className="review-stat-value">{virtueEarned ? '● 기록됨' : '○ 미기록'}</span>
         </div>
       </div>
 

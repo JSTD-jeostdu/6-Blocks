@@ -122,14 +122,42 @@ body {
   border-bottom: 1px solid rgba(0,0,0,0.06);
   padding: 0 16px;
   position: sticky;
-  top: 49px;
+  top: 65px;
   z-index: 99;
 }
+
+.date-nav {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap: 8px;
+  padding: 8px 16px 4px;
+  background: var(--paper);
+}
+
+.date-nav button {
+  min-height: 36px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.date-nav button:first-child,
+.date-nav button:last-child { font-size: 24px; line-height: 1; }
+.date-nav button.active { color: var(--study); border-color: var(--study); }
+[data-theme="dark"] .date-nav button { border-color: rgba(255,255,255,0.09); }
 
 [data-theme="dark"] .tab-bar { border-bottom-color: rgba(255,255,255,0.06); }
 
 .tab {
   flex: 1;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   padding: 10px 4px;
   text-align: center;
   font-size: 13px;
@@ -759,6 +787,50 @@ body {
   margin-top: 8px;
 }
 
+.section-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rollover-card {
+  background: color-mix(in srgb, var(--study) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--study) 28%, transparent);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.rollover-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.rollover-list label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.rollover-list input { width: 18px; height: 18px; accent-color: var(--study); }
+
+.small-cta-btn {
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.small-cta-btn:disabled { opacity: 0.4; cursor: default; }
+
+.cycle-auto-note {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--stamp-bg);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.review-card--highlight { border: 1px solid color-mix(in srgb, var(--study) 25%, transparent); }
+
 .empty-state {
   text-align: center;
   padding: 40px 20px;
@@ -954,6 +1026,27 @@ body {
   cursor: pointer;
   margin-top: 4px;
 }
+
+.account-data-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.account-data-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 4px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.account-data-actions button.danger { color: #c0392b; }
 
 [data-theme="dark"] .account-signout-btn { border-color: rgba(255,255,255,0.12); }
 
