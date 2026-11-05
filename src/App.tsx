@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser, fetchRemoteData, syncRemoteData, type SyncUser } from './firebase'
+import { InstallGuide, OfflineIndicator } from './InstallGuide'
 import {
   dateFromKey,
   dateKey,
@@ -229,9 +230,13 @@ export default function App() {
   // Save on every data change
   useEffect(() => { saveData(data) }, [data])
 
-  // Theme
+  // Theme — 다크 모드 전환 시 OS/브라우저 상단바 색(theme-color)도 함께 맞춤
+  // (라이트/다크 두 개의 media 쿼리 meta를 모두 갱신 — 수동 토글 대응, UX Audit §3.3)
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', data.theme)
+    document
+      .querySelectorAll('meta[name="theme-color"]')
+      .forEach(el => el.setAttribute('content', data.theme === 'dark' ? '#1A1D24' : '#F7F3EC'))
   }, [data.theme])
 
   // 로그인 상태 감지: 로그인되면 클라우드 데이터를 가져와 "병합"하고, 이후 변경사항은 자동 업로드합니다.
@@ -410,7 +415,13 @@ export default function App() {
 
   // ==================== EVENING QUESTION ====================
   if (screen === 'evening') {
-    return <EveningQuestion today={selectedDay} updateToday={updateSelectedDay} selectedDate={selectedDate} onDone={() => setScreen('canvas')} />
+    return <EveningQuestion
+      today={selectedDay}
+      updateToday={updateSelectedDay}
+      selectedDate={selectedDate}
+      virtue={VIRTUES[cyclePosition(data, selectedDate, VIRTUE_CYCLE_LENGTH).virtue]}
+      onDone={() => setScreen('canvas')}
+    />
   }
 
   // ==================== MAIN APP ====================
@@ -460,6 +471,10 @@ export default function App() {
         {tab === 'virtue' && <VirtueTab data={data} update={update} selectedDate={selectedDate} />}
         {tab === 'review' && <ReviewTab today={selectedDay} data={data} selectedDate={selectedDate} />}
       </div>
+
+      {/* PWA: 오프라인 표시 + 홈 화면 설치 안내 */}
+      <OfflineIndicator />
+      <InstallGuide />
     </div>
   )
 }
@@ -1161,10 +1176,11 @@ function MorningQuestion({ today, updateToday, onDone }: {
 }
 
 // ==================== EVENING QUESTION ====================
-function EveningQuestion({ today, updateToday, selectedDate, onDone }: {
+function EveningQuestion({ today, updateToday, selectedDate, virtue, onDone }: {
   today: DayData
   updateToday: (fn: (day: DayData) => void) => void
   selectedDate: string
+  virtue: (typeof VIRTUES)[number]
   onDone: () => void
 }) {
   const [answer, setAnswer] = useState(today.eveningAnswer)
@@ -1239,7 +1255,7 @@ function EveningQuestion({ today, updateToday, selectedDate, onDone }: {
             >
               {today.virtueDots[selectedDate] ? '✓' : ''}
             </button>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{VIRTUES[0].ko} ({VIRTUES[0].en})</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{virtue.ko} ({virtue.en})</span>
           </div>
 
           <button className="cta-btn" onClick={() => {

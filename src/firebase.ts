@@ -5,7 +5,7 @@ import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
   onAuthStateChanged,
   type Auth,
@@ -45,11 +45,12 @@ export function onAuthChange(cb: (user: SyncUser | null) => void): () => void {
   return onAuthStateChanged(authInstance, u => cb(u ? toSyncUser(u) : null))
 }
 
-export async function signInWithGoogle(): Promise<SyncUser> {
+export async function signInWithGoogle(): Promise<void> {
   if (!authInstance) throw new Error('Firebase가 설정되지 않았습니다.')
   const provider = new GoogleAuthProvider()
-  const result = await signInWithPopup(authInstance, provider)
-  return toSyncUser(result.user)
+  // PWA standalone·iOS Safari·모바일 인앱 브라우저에선 popup이 차단돼 로그인이 실패하므로
+  // redirect 방식을 사용합니다. 복귀 후에는 onAuthChange 콜백이 로그인 상태를 이어받습니다.
+  await signInWithRedirect(authInstance, provider)
 }
 
 export async function signOutUser(): Promise<void> {
